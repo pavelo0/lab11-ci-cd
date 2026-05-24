@@ -1,0 +1,72 @@
+# Лабораторная 11 — CI (pytest + Selenium) и CD (GitHub Pages только после успеха на main).
+
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+      - "fix/**"
+  pull_request:
+    branches:
+      - main
+      - dev
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: lab11-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
+      - name: Install Python deps
+        run: pip install -r requirements.txt
+
+      - name: HTTP server + pytest
+        run: |
+          python -m http.server 8765 --bind 127.0.0.1 &
+          SERVER_PID=$!
+          sleep 2
+          pytest tests -v --tb=short
+          EXIT=$?
+          kill $SERVER_PID || true
+          exit $EXIT
+        env:
+          BASE_URL: http://127.0.0.1:8765
+
+  deploy-pages:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Статический сайт (только страница формы)
+        run: mkdir -p _site && cp index.html _site/index.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
